@@ -1,6 +1,8 @@
 import requests
 import logging
+import threading
 
+from time import sleep
 from urllib.parse import urljoin, unquote
 from collections import deque, namedtuple
 from bs4 import BeautifulSoup, SoupStrainer
@@ -14,15 +16,15 @@ logger = logging.getLogger('logger')
 SEED_PAGE = 'https://ru.wikipedia.org/wiki/%D0%92%D1%8B%D1%81%D1%88%D0%B0%D1%8F_%D1%88%D0%BA%D0%BE%D0%BB%' \
             'D0%B0_%D1%8D%D0%BA%D0%BE%D0%BD%D0%BE%D0%BC%D0%B8%D0%BA%D0%B8'
 DOMAIN = 'https://ru.wikipedia.org'
-TMP_RESULTS_FILENAME = 'tmp_results.txt'
-DUMP_NMBR = 1000
+TMP_RESULTS_FILENAME = 'tmp_results'
+DUMP_NMBR = 100
 
 
 Result = namedtuple('Result', ['url', 'links'])
 
 
 class WikiCrawler(object):
-    def __int__(self):
+    def __init__(self):
         self._reset()
 
     def _reset(self):
@@ -47,6 +49,10 @@ class WikiCrawler(object):
         logger.info('DUMPED %s results', self.results_cnt)
         self.results = []
 
+    def dump_result(self, res, index):
+        with open(self.tmp_filename + index + '.txt', 'a') as out:
+            out.write(','.join([unquote(res.url)] + [unquote(link) for link in res.links]) + '\n')
+
     def get_links(self, s, page):
         try:
             response = s.get(page)
@@ -60,12 +66,13 @@ class WikiCrawler(object):
         except:
             return []
 
-    def crawl(self):
-        self._reset()
+    def crawl(self, index='1'):
         session = requests.Session()
+        print('started')
 
         while True:
             if len(self.pages) > 0:
+
                 page = self.pages.popleft()
 
                 if page not in self.visited:
@@ -74,17 +81,28 @@ class WikiCrawler(object):
 
                     if len(links) != 0:
                         self.pages.extend(links)
-                        self.results.append(Result(url=page, links=links))
-
-                        if len(self.results) % DUMP_NMBR == 0:
-                            self.dump_results()
+                        r = Result(url=page, links=links)
+                        self.results.append(r)
+                        self.dump_result(r, index)
                     else:
                         self.dangling_pages[page] = True
+
+    def run(self):
+        pool = []
+        for i in range(4):
+            t = threading.Thread(target=self.crawl, args=(str(i)))
+            t.start()
+            pool.append(t)
+            sleep(10)
+
+        for t in pool:
+            t.join()
 
 
 if __name__ == '__main__':
     wiki = WikiCrawler()
-    wiki.crawl()
+    wiki.run()
+#    wiki.crawl()
 
 
 
